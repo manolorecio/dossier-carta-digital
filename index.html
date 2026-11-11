@@ -42,17 +42,16 @@
       padding: 16px;
       perspective: 2000px;
     }
+    .viewport-area.zoomed {
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
     .slide-container {
       position: relative;
       display: flex;
       justify-content: center;
       align-items: center;
-      transition: transform 0.25s ease;
-      transform-origin: center top;
-    }
-    .slide-container.zoomed {
-      transform: scale(1.65);
-      cursor: grab;
+      margin: auto;
     }
     .slide-page {
       display: none;
@@ -60,8 +59,6 @@
       box-shadow: 0 18px 45px rgba(0, 0, 0, 0.75);
       border-radius: 4px;
       overflow: hidden;
-      max-width: 94vw;
-      max-height: calc(100vh - 96px);
     }
     .slide-page.active {
       display: block;
@@ -74,13 +71,17 @@
       display: block;
       width: auto;
       height: auto;
-      max-width: 94vw;
+      max-width: 95vw;
       max-height: calc(100vh - 96px);
+      aspect-ratio: attr(width) / attr(height);
+      object-fit: contain;
     }
-    .slide-container.zoomed .slide-page,
-    .slide-container.zoomed .slide-page canvas {
+    .viewport-area.zoomed .slide-page canvas {
       max-width: none;
       max-height: none;
+      width: 165vw;
+      height: auto;
+      cursor: grab;
     }
     @keyframes pageEnter {
       from { opacity: 0.4; transform: rotateY(-12deg) translateX(25px); }
@@ -142,7 +143,7 @@
 
   <div class="controls">
     <button id="prevBtn">← Anterior</button>
-    <span id="pageInfo">Página 1 de 60</span>
+    <span id="pageInfo">Página 1 de 30</span>
     <button id="nextBtn">Siguiente →</button>
     <button id="zoomBtn">🔍 Ampliar</button>
     <button id="fullBtn">⛶ Pantalla completa</button>
@@ -212,9 +213,9 @@
         const rawPages = pdf.numPages;
 
         for (let num = 1; num <= rawPages; num++) {
-          progressText.textContent = `Procesando pliego ${num} / ${rawPages}...`;
+          progressText.textContent = `Renderizando HD: ${num} / ${rawPages} páginas`;
           const page = await pdf.getPage(num);
-          const viewport = page.getViewport({ scale: 2.2 });
+          const viewport = page.getViewport({ scale: 2.5 });
 
           const tempCanvas = document.createElement('canvas');
           const tempContext = tempCanvas.getContext('2d');
@@ -223,8 +224,8 @@
 
           await page.render({ canvasContext: tempContext, viewport: viewport }).promise;
 
-          // Si el pliego es doble (ancho mucho mayor que el alto), lo dividimos en 2 páginas individuales
-          if (viewport.width > viewport.height * 1.4) {
+          // Solo divide si es un pliego doble ultraancho (32:9), nunca una diapositiva 16:9
+          if (viewport.width > viewport.height * 2.6) {
             addHalfSlide(tempCanvas, 'left');
             addHalfSlide(tempCanvas, 'right');
           } else {
@@ -243,7 +244,7 @@
         nextBtn.addEventListener('click', () => showPage(currentIndex + 1, 'next'));
 
         slideContainer.addEventListener('click', (e) => {
-          if (slideContainer.classList.contains('zoomed')) return;
+          if (viewportArea.classList.contains('zoomed')) return;
           const rect = slideContainer.getBoundingClientRect();
           const clickX = e.clientX - rect.left;
           if (clickX > rect.width * 0.5) {
@@ -256,9 +257,10 @@
         let isZoomed = false;
         zoomBtn.addEventListener('click', () => {
           isZoomed = !isZoomed;
-          slideContainer.classList.toggle('zoomed', isZoomed);
+          viewportArea.classList.toggle('zoomed', isZoomed);
           zoomBtn.classList.toggle('active', isZoomed);
           zoomBtn.textContent = isZoomed ? '🔍 Ajustar' : '🔍 Ampliar';
+          viewportArea.scrollTo({ top: 0, left: 0 });
         });
 
         fullBtn.addEventListener('click', () => {
