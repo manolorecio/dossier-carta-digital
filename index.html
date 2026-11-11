@@ -101,7 +101,10 @@
 
     async function initBook() {
       try {
-        const loadingTask = pdfjsLib.getDocument({ url: pdfUrl });
+        const loadingTask = pdfjsLib.getDocument({
+          url: pdfUrl,
+          wasmUrl: './wasm/'
+        });
         const pdf = await loadingTask.promise;
         const totalPages = pdf.numPages;
 
