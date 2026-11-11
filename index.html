@@ -170,6 +170,18 @@
       return { width: Math.floor(width), height: Math.floor(height) };
     }
 
+    // Conversión compatible con PDF.js v6.5
+    function pdfRectToViewport(rect, viewport) {
+      const p1 = pdfjsLib.Util.applyTransform([rect[0], rect[1]], viewport.transform);
+      const p2 = pdfjsLib.Util.applyTransform([rect[2], rect[3]], viewport.transform);
+      return [
+        Math.min(p1[0], p2[0]),
+        Math.min(p1[1], p2[1]),
+        Math.max(p1[0], p2[0]),
+        Math.max(p1[1], p2[1])
+      ];
+    }
+
     async function initBook() {
       try {
         const loadingTask = pdfjsLib.getDocument({
@@ -208,11 +220,7 @@
 
             annotations.forEach((ann) => {
               if (ann.subtype === 'Link' && ann.url && ann.rect) {
-                const rect = viewport.convertToViewportRectangle(ann.rect);
-                const x1 = Math.min(rect[0], rect[2]);
-                const y1 = Math.min(rect[1], rect[3]);
-                const x2 = Math.max(rect[0], rect[2]);
-                const y2 = Math.max(rect[1], rect[3]);
+                const [x1, y1, x2, y2] = pdfRectToViewport(ann.rect, viewport);
 
                 const link = document.createElement('a');
                 link.className = 'pdf-link';
@@ -226,7 +234,6 @@
                 link.style.width = `${((x2 - x1) / viewport.width) * 100}%`;
                 link.style.height = `${((y2 - y1) / viewport.height) * 100}%`;
 
-                // Evita que el clic en el enlace active el giro de hoja de StPageFlip
                 ['pointerdown', 'mousedown', 'touchstart', 'click'].forEach((evt) => {
                   link.addEventListener(evt, (e) => e.stopPropagation());
                 });
