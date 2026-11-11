@@ -170,15 +170,24 @@
       return { width: Math.floor(width), height: Math.floor(height) };
     }
 
-    // Conversión compatible con PDF.js v6.5
+    // Cálculo directo con matriz de transformación del viewport (100% compatible)
     function pdfRectToViewport(rect, viewport) {
-      const p1 = pdfjsLib.Util.applyTransform([rect[0], rect[1]], viewport.transform);
-      const p2 = pdfjsLib.Util.applyTransform([rect[2], rect[3]], viewport.transform);
+      const m = viewport.transform;
+      const rx1 = rect[0];
+      const ry1 = rect[1];
+      const rx2 = rect[2];
+      const ry2 = rect[3];
+
+      const vx1 = rx1 * m[0] + ry1 * m[2] + m[4];
+      const vy1 = rx1 * m[1] + ry1 * m[3] + m[5];
+      const vx2 = rx2 * m[0] + ry2 * m[2] + m[4];
+      const vy2 = rx2 * m[1] + ry2 * m[3] + m[5];
+
       return [
-        Math.min(p1[0], p2[0]),
-        Math.min(p1[1], p2[1]),
-        Math.max(p1[0], p2[0]),
-        Math.max(p1[1], p2[1])
+        Math.min(vx1, vx2),
+        Math.min(vy1, vy2),
+        Math.max(vx1, vx2),
+        Math.max(vy1, vy2)
       ];
     }
 
