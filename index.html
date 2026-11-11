@@ -15,7 +15,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      min-height: 100vh;
+      height: 100vh;
       overflow: hidden;
     }
     #loader {
@@ -31,16 +31,30 @@
       padding: 20px;
       text-align: center;
     }
-    .book-wrapper {
-      width: 95vw;
-      max-width: 1400px;
+    .viewport-area {
+      width: 100vw;
+      height: calc(100vh - 64px);
       display: flex;
       justify-content: center;
       align-items: center;
+      overflow: auto;
+      padding: 12px;
+    }
+    .book-wrapper {
+      width: 100%;
+      max-width: 1280px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: transform 0.25s ease;
+      transform-origin: center top;
+    }
+    .book-wrapper.zoomed {
+      transform: scale(1.65);
     }
     .page {
       background-color: #ffffff;
-      box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
       overflow: hidden;
     }
     .page canvas {
@@ -49,42 +63,57 @@
       display: block;
     }
     .controls {
-      margin-top: 20px;
+      height: 64px;
+      width: 100%;
+      background: #081219;
+      border-top: 1px solid #162b38;
       display: flex;
-      gap: 16px;
+      gap: 14px;
       align-items: center;
+      justify-content: center;
+      z-index: 50;
     }
     button {
       background: #162b38;
       color: #7ef29d;
       border: 1px solid #7ef29d;
-      padding: 8px 18px;
+      padding: 7px 15px;
       border-radius: 6px;
       cursor: pointer;
       font-weight: 600;
+      font-size: 14px;
       transition: 0.2s;
     }
-    button:hover {
+    button:hover, button.active {
       background: #7ef29d;
       color: #0b1922;
+    }
+    #pageInfo {
+      font-size: 14px;
+      min-width: 115px;
+      text-align: center;
     }
   </style>
 </head>
 <body>
 
   <div id="loader">
-    <p id="statusTitle">Cargando dossier interactivo...</p>
+    <p id="statusTitle">Cargando dossier en alta definición...</p>
     <span id="progress">Preparando páginas...</span>
   </div>
 
-  <div class="book-wrapper">
-    <div id="flipbook"></div>
+  <div class="viewport-area" id="viewportArea">
+    <div class="book-wrapper" id="bookWrapper">
+      <div id="flipbook"></div>
+    </div>
   </div>
 
   <div class="controls">
     <button id="prevBtn">← Anterior</button>
     <span id="pageInfo">Página 1 de 30</span>
     <button id="nextBtn">Siguiente →</button>
+    <button id="zoomBtn">🔍 Ampliar</button>
+    <button id="fullBtn">⛶ Pantalla completa</button>
   </div>
 
   <script src="./page-flip.browser.js"></script>
@@ -95,10 +124,13 @@
 
     const pdfUrl = './dossier-editor-portable-carta-digital.pdf';
     const flipbookEl = document.getElementById('flipbook');
+    const bookWrapper = document.getElementById('bookWrapper');
     const loader = document.getElementById('loader');
     const statusTitle = document.getElementById('statusTitle');
     const progressText = document.getElementById('progress');
     const pageInfo = document.getElementById('pageInfo');
+    const zoomBtn = document.getElementById('zoomBtn');
+    const fullBtn = document.getElementById('fullBtn');
 
     async function initBook() {
       try {
@@ -110,15 +142,12 @@
         const totalPages = pdf.numPages;
 
         for (let num = 1; num <= totalPages; num++) {
-          progressText.textContent = `Renderizando ${num} / ${totalPages} páginas`;
+          progressText.textContent = `Renderizando HD: ${num} / ${totalPages} páginas`;
           const page = await pdf.getPage(num);
-          const viewport = page.getViewport({ scale: 1.6 });
+          const viewport = page.getViewport({ scale: 3.0 });
 
           const pageDiv = document.createElement('div');
           pageDiv.className = 'page';
-          if (num === 1 || num === totalPages) {
-            pageDiv.dataset.density = 'hard';
-          }
 
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
@@ -130,16 +159,18 @@
           flipbookEl.appendChild(pageDiv);
         }
 
+        // Vista de 1 sola página grande con proporción 16:9
         const pageFlip = new St.PageFlip(flipbookEl, {
-          width: 640,
-          height: 360,
+          width: 1280,
+          height: 720,
           size: 'stretch',
           minWidth: 320,
-          maxWidth: 1280,
+          maxWidth: 1600,
           minHeight: 180,
-          maxHeight: 720,
-          showCover: true,
-          maxShadowOpacity: 0.4,
+          maxHeight: 900,
+          usePortrait: true,
+          showCover: false,
+          maxShadowOpacity: 0.35,
           mobileScrollSupport: false
         });
 
@@ -147,6 +178,22 @@
 
         document.getElementById('prevBtn').addEventListener('click', () => pageFlip.flipPrev());
         document.getElementById('nextBtn').addEventListener('click', () => pageFlip.flipNext());
+
+        let isZoomed = false;
+        zoomBtn.addEventListener('click', () => {
+          isZoomed = !isZoomed;
+          bookWrapper.classList.toggle('zoomed', isZoomed);
+          zoomBtn.classList.toggle('active', isZoomed);
+          zoomBtn.textContent = isZoomed ? '🔍 Reducir' : '🔍 Ampliar';
+        });
+
+        fullBtn.addEventListener('click', () => {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen();
+          } else {
+            document.exitFullscreen();
+          }
+        });
 
         document.addEventListener('keydown', (e) => {
           if (e.key === 'ArrowLeft') pageFlip.flipPrev();
