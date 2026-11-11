@@ -39,57 +39,33 @@
       justify-content: center;
       align-items: center;
       overflow: auto;
-      padding: 16px;
-      perspective: 2000px;
+      padding: 12px;
     }
     .viewport-area.zoomed {
       align-items: flex-start;
       justify-content: flex-start;
     }
-    .slide-container {
-      position: relative;
+    .book-wrapper {
       display: flex;
       justify-content: center;
       align-items: center;
       margin: auto;
+      transition: transform 0.25s ease;
+      transform-origin: top left;
     }
-    .slide-page {
-      display: none;
-      background: #ffffff;
-      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.75);
-      border-radius: 4px;
+    .viewport-area.zoomed .book-wrapper {
+      transform: scale(1.65);
+    }
+    .page {
+      background-color: #ffffff;
+      box-shadow: 0 14px 35px rgba(0, 0, 0, 0.65);
       overflow: hidden;
     }
-    .slide-page.active {
+    .page canvas {
+      width: 100%;
+      height: 100%;
       display: block;
-      animation: pageEnter 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-    .slide-page.active.prev-anim {
-      animation: pageEnterPrev 0.35s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-    .slide-page canvas {
-      display: block;
-      width: auto;
-      height: auto;
-      max-width: 95vw;
-      max-height: calc(100vh - 96px);
-      aspect-ratio: attr(width) / attr(height);
       object-fit: contain;
-    }
-    .viewport-area.zoomed .slide-page canvas {
-      max-width: none;
-      max-height: none;
-      width: 165vw;
-      height: auto;
-      cursor: grab;
-    }
-    @keyframes pageEnter {
-      from { opacity: 0.4; transform: rotateY(-12deg) translateX(25px); }
-      to { opacity: 1; transform: rotateY(0deg) translateX(0); }
-    }
-    @keyframes pageEnterPrev {
-      from { opacity: 0.4; transform: rotateY(12deg) translateX(-25px); }
-      to { opacity: 1; transform: rotateY(0deg) translateX(0); }
     }
     .controls {
       height: 64px;
@@ -118,10 +94,6 @@
       background: #7ef29d;
       color: #0b1922;
     }
-    button:disabled {
-      opacity: 0.35;
-      cursor: not-allowed;
-    }
     #pageInfo {
       font-size: 14px;
       min-width: 125px;
@@ -138,7 +110,9 @@
   </div>
 
   <div class="viewport-area" id="viewportArea">
-    <div class="slide-container" id="slideContainer"></div>
+    <div class="book-wrapper" id="bookWrapper">
+      <div id="flipbook"></div>
+    </div>
   </div>
 
   <div class="controls">
@@ -149,58 +123,34 @@
     <button id="fullBtn">⛶ Pantalla completa</button>
   </div>
 
+  <script src="./page-flip.browser.js"></script>
+
   <script type="module">
     import * as pdfjsLib from './pdf.mjs';
     pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.mjs';
 
     const pdfUrl = './dossier-editor-portable-carta-digital.pdf';
-    const slideContainer = document.getElementById('slideContainer');
+    const flipbookEl = document.getElementById('flipbook');
     const viewportArea = document.getElementById('viewportArea');
     const loader = document.getElementById('loader');
     const statusTitle = document.getElementById('statusTitle');
     const progressText = document.getElementById('progress');
     const pageInfo = document.getElementById('pageInfo');
-    const prevBtn = document.getElementById('prevBtn');
-    const nextBtn = document.getElementById('nextBtn');
     const zoomBtn = document.getElementById('zoomBtn');
     const fullBtn = document.getElementById('fullBtn');
 
-    let currentIndex = 0;
-    let totalSinglePages = 0;
-    const slides = [];
+    // Calcula las dimensiones exactas 16:9 que caben en la pantalla actual
+    function getSingleSlideDimensions(aspectRatio) {
+      const availW = window.innerWidth * 0.94;
+      const availH = (window.innerHeight - 64) * 0.94;
+      let width = availW;
+      let height = width / aspectRatio;
 
-    function addHalfSlide(sourceCanvas, half) {
-      const halfWidth = Math.floor(sourceCanvas.width / 2);
-      const height = sourceCanvas.height;
-      const sx = half === 'left' ? 0 : halfWidth;
-
-      const pageDiv = document.createElement('div');
-      pageDiv.className = 'slide-page';
-
-      const canvas = document.createElement('canvas');
-      canvas.width = halfWidth;
-      canvas.height = height;
-
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(sourceCanvas, sx, 0, halfWidth, height, 0, 0, halfWidth, height);
-
-      pageDiv.appendChild(canvas);
-      slideContainer.appendChild(pageDiv);
-      slides.push(pageDiv);
-    }
-
-    function showPage(index, direction = 'next') {
-      if (index < 0 || index >= totalSinglePages) return;
-      slides.forEach((s) => s.classList.remove('active', 'prev-anim'));
-      const target = slides[index];
-      if (direction === 'prev') target.classList.add('prev-anim');
-      target.classList.add('active');
-      currentIndex = index;
-
-      pageInfo.textContent = `Página ${currentIndex + 1} de ${totalSinglePages}`;
-      prevBtn.disabled = currentIndex === 0;
-      nextBtn.disabled = currentIndex === totalSinglePages - 1;
-      viewportArea.scrollTo({ top: 0, left: 0 });
+      if (height > availH) {
+        height = availH;
+        width = height * aspectRatio;
+      }
+      return { width: Math.floor(width), height: Math.floor(height) };
     }
 
     async function initBook() {
@@ -210,49 +160,49 @@
           wasmUrl: './wasm/'
         });
         const pdf = await loadingTask.promise;
-        const rawPages = pdf.numPages;
+        const totalPages = pdf.numPages;
+        let slideRatio = 16 / 9;
 
-        for (let num = 1; num <= rawPages; num++) {
-          progressText.textContent = `Renderizando HD: ${num} / ${rawPages} páginas`;
+        for (let num = 1; num <= totalPages; num++) {
+          progressText.textContent = `Renderizando HD: ${num} / ${totalPages} páginas`;
           const page = await pdf.getPage(num);
           const viewport = page.getViewport({ scale: 2.5 });
 
-          const tempCanvas = document.createElement('canvas');
-          const tempContext = tempCanvas.getContext('2d');
-          tempCanvas.height = viewport.height;
-          tempCanvas.width = viewport.width;
-
-          await page.render({ canvasContext: tempContext, viewport: viewport }).promise;
-
-          // Solo divide si es un pliego doble ultraancho (32:9), nunca una diapositiva 16:9
-          if (viewport.width > viewport.height * 2.6) {
-            addHalfSlide(tempCanvas, 'left');
-            addHalfSlide(tempCanvas, 'right');
-          } else {
-            const pageDiv = document.createElement('div');
-            pageDiv.className = 'slide-page';
-            pageDiv.appendChild(tempCanvas);
-            slideContainer.appendChild(pageDiv);
-            slides.push(pageDiv);
+          if (num === 1) {
+            slideRatio = viewport.width / viewport.height;
           }
+
+          const pageDiv = document.createElement('div');
+          pageDiv.className = 'page';
+
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          await page.render({ canvasContext: context, viewport: viewport }).promise;
+          pageDiv.appendChild(canvas);
+          flipbookEl.appendChild(pageDiv);
         }
 
-        totalSinglePages = slides.length;
-        showPage(0);
+        const dims = getSingleSlideDimensions(slideRatio);
 
-        prevBtn.addEventListener('click', () => showPage(currentIndex - 1, 'prev'));
-        nextBtn.addEventListener('click', () => showPage(currentIndex + 1, 'next'));
-
-        slideContainer.addEventListener('click', (e) => {
-          if (viewportArea.classList.contains('zoomed')) return;
-          const rect = slideContainer.getBoundingClientRect();
-          const clickX = e.clientX - rect.left;
-          if (clickX > rect.width * 0.5) {
-            showPage(currentIndex + 1, 'next');
-          } else {
-            showPage(currentIndex - 1, 'prev');
-          }
+        // size: 'fixed' con dimensiones exactas fuerza a StPageFlip a mostrar 1 sola hoja 16:9 con efecto flip
+        const pageFlip = new St.PageFlip(flipbookEl, {
+          width: dims.width,
+          height: dims.height,
+          size: 'fixed',
+          usePortrait: true,
+          showCover: false,
+          maxShadowOpacity: 0.45,
+          flippingTime: 650,
+          mobileScrollSupport: false
         });
+
+        pageFlip.loadFromHTML(document.querySelectorAll('.page'));
+
+        document.getElementById('prevBtn').addEventListener('click', () => pageFlip.flipPrev());
+        document.getElementById('nextBtn').addEventListener('click', () => pageFlip.flipNext());
 
         let isZoomed = false;
         zoomBtn.addEventListener('click', () => {
@@ -272,8 +222,12 @@
         });
 
         document.addEventListener('keydown', (e) => {
-          if (e.key === 'ArrowLeft') showPage(currentIndex - 1, 'prev');
-          if (e.key === 'ArrowRight' || e.key === ' ') showPage(currentIndex + 1, 'next');
+          if (e.key === 'ArrowLeft') pageFlip.flipPrev();
+          if (e.key === 'ArrowRight' || e.key === ' ') pageFlip.flipNext();
+        });
+
+        pageFlip.on('flip', (e) => {
+          pageInfo.textContent = `Página ${e.data + 1} de ${totalPages}`;
         });
 
         loader.style.display = 'none';
