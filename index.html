@@ -14,9 +14,10 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: space-between;
       height: 100vh;
       overflow: hidden;
+      user-select: none;
     }
     #loader {
       position: fixed;
@@ -38,29 +39,56 @@
       justify-content: center;
       align-items: center;
       overflow: auto;
-      padding: 12px;
+      padding: 16px;
+      perspective: 2000px;
     }
-    .book-wrapper {
-      width: 100%;
-      max-width: 1280px;
+    .slide-container {
+      position: relative;
       display: flex;
       justify-content: center;
       align-items: center;
       transition: transform 0.25s ease;
       transform-origin: center top;
     }
-    .book-wrapper.zoomed {
+    .slide-container.zoomed {
       transform: scale(1.65);
+      cursor: grab;
     }
-    .page {
-      background-color: #ffffff;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+    .slide-page {
+      display: none;
+      background: #ffffff;
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.75);
+      border-radius: 4px;
       overflow: hidden;
+      max-width: 94vw;
+      max-height: calc(100vh - 96px);
     }
-    .page canvas {
-      width: 100%;
-      height: 100%;
+    .slide-page.active {
       display: block;
+      animation: pageEnter 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .slide-page.active.prev-anim {
+      animation: pageEnterPrev 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .slide-page canvas {
+      display: block;
+      width: auto;
+      height: auto;
+      max-width: 94vw;
+      max-height: calc(100vh - 96px);
+    }
+    .slide-container.zoomed .slide-page,
+    .slide-container.zoomed .slide-page canvas {
+      max-width: none;
+      max-height: none;
+    }
+    @keyframes pageEnter {
+      from { opacity: 0.4; transform: rotateY(-12deg) translateX(25px); }
+      to { opacity: 1; transform: rotateY(0deg) translateX(0); }
+    }
+    @keyframes pageEnterPrev {
+      from { opacity: 0.4; transform: rotateY(12deg) translateX(-25px); }
+      to { opacity: 1; transform: rotateY(0deg) translateX(0); }
     }
     .controls {
       height: 64px;
@@ -68,30 +96,36 @@
       background: #081219;
       border-top: 1px solid #162b38;
       display: flex;
-      gap: 14px;
+      gap: 12px;
       align-items: center;
       justify-content: center;
       z-index: 50;
+      padding: 0 10px;
     }
     button {
       background: #162b38;
       color: #7ef29d;
       border: 1px solid #7ef29d;
-      padding: 7px 15px;
+      padding: 7px 14px;
       border-radius: 6px;
       cursor: pointer;
       font-weight: 600;
       font-size: 14px;
       transition: 0.2s;
     }
-    button:hover, button.active {
+    button:hover:not(:disabled), button.active {
       background: #7ef29d;
       color: #0b1922;
     }
+    button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
     #pageInfo {
       font-size: 14px;
-      min-width: 115px;
+      min-width: 125px;
       text-align: center;
+      font-variant-numeric: tabular-nums;
     }
   </style>
 </head>
@@ -103,34 +137,70 @@
   </div>
 
   <div class="viewport-area" id="viewportArea">
-    <div class="book-wrapper" id="bookWrapper">
-      <div id="flipbook"></div>
-    </div>
+    <div class="slide-container" id="slideContainer"></div>
   </div>
 
   <div class="controls">
     <button id="prevBtn">← Anterior</button>
-    <span id="pageInfo">Página 1 de 30</span>
+    <span id="pageInfo">Página 1 de 60</span>
     <button id="nextBtn">Siguiente →</button>
     <button id="zoomBtn">🔍 Ampliar</button>
     <button id="fullBtn">⛶ Pantalla completa</button>
   </div>
-
-  <script src="./page-flip.browser.js"></script>
 
   <script type="module">
     import * as pdfjsLib from './pdf.mjs';
     pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.mjs';
 
     const pdfUrl = './dossier-editor-portable-carta-digital.pdf';
-    const flipbookEl = document.getElementById('flipbook');
-    const bookWrapper = document.getElementById('bookWrapper');
+    const slideContainer = document.getElementById('slideContainer');
+    const viewportArea = document.getElementById('viewportArea');
     const loader = document.getElementById('loader');
     const statusTitle = document.getElementById('statusTitle');
     const progressText = document.getElementById('progress');
     const pageInfo = document.getElementById('pageInfo');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
     const zoomBtn = document.getElementById('zoomBtn');
     const fullBtn = document.getElementById('fullBtn');
+
+    let currentIndex = 0;
+    let totalSinglePages = 0;
+    const slides = [];
+
+    function addHalfSlide(sourceCanvas, half) {
+      const halfWidth = Math.floor(sourceCanvas.width / 2);
+      const height = sourceCanvas.height;
+      const sx = half === 'left' ? 0 : halfWidth;
+
+      const pageDiv = document.createElement('div');
+      pageDiv.className = 'slide-page';
+
+      const canvas = document.createElement('canvas');
+      canvas.width = halfWidth;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(sourceCanvas, sx, 0, halfWidth, height, 0, 0, halfWidth, height);
+
+      pageDiv.appendChild(canvas);
+      slideContainer.appendChild(pageDiv);
+      slides.push(pageDiv);
+    }
+
+    function showPage(index, direction = 'next') {
+      if (index < 0 || index >= totalSinglePages) return;
+      slides.forEach((s) => s.classList.remove('active', 'prev-anim'));
+      const target = slides[index];
+      if (direction === 'prev') target.classList.add('prev-anim');
+      target.classList.add('active');
+      currentIndex = index;
+
+      pageInfo.textContent = `Página ${currentIndex + 1} de ${totalSinglePages}`;
+      prevBtn.disabled = currentIndex === 0;
+      nextBtn.disabled = currentIndex === totalSinglePages - 1;
+      viewportArea.scrollTo({ top: 0, left: 0 });
+    }
 
     async function initBook() {
       try {
@@ -139,52 +209,56 @@
           wasmUrl: './wasm/'
         });
         const pdf = await loadingTask.promise;
-        const totalPages = pdf.numPages;
+        const rawPages = pdf.numPages;
 
-        for (let num = 1; num <= totalPages; num++) {
-          progressText.textContent = `Renderizando HD: ${num} / ${totalPages} páginas`;
+        for (let num = 1; num <= rawPages; num++) {
+          progressText.textContent = `Procesando pliego ${num} / ${rawPages}...`;
           const page = await pdf.getPage(num);
-          const viewport = page.getViewport({ scale: 3.0 });
+          const viewport = page.getViewport({ scale: 2.2 });
 
-          const pageDiv = document.createElement('div');
-          pageDiv.className = 'page';
+          const tempCanvas = document.createElement('canvas');
+          const tempContext = tempCanvas.getContext('2d');
+          tempCanvas.height = viewport.height;
+          tempCanvas.width = viewport.width;
 
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
+          await page.render({ canvasContext: tempContext, viewport: viewport }).promise;
 
-          await page.render({ canvasContext: context, viewport: viewport }).promise;
-          pageDiv.appendChild(canvas);
-          flipbookEl.appendChild(pageDiv);
+          // Si el pliego es doble (ancho mucho mayor que el alto), lo dividimos en 2 páginas individuales
+          if (viewport.width > viewport.height * 1.4) {
+            addHalfSlide(tempCanvas, 'left');
+            addHalfSlide(tempCanvas, 'right');
+          } else {
+            const pageDiv = document.createElement('div');
+            pageDiv.className = 'slide-page';
+            pageDiv.appendChild(tempCanvas);
+            slideContainer.appendChild(pageDiv);
+            slides.push(pageDiv);
+          }
         }
 
-        // Vista de 1 sola página grande con proporción 16:9
-        const pageFlip = new St.PageFlip(flipbookEl, {
-          width: 1280,
-          height: 720,
-          size: 'stretch',
-          minWidth: 320,
-          maxWidth: 1600,
-          minHeight: 180,
-          maxHeight: 900,
-          usePortrait: true,
-          showCover: false,
-          maxShadowOpacity: 0.35,
-          mobileScrollSupport: false
+        totalSinglePages = slides.length;
+        showPage(0);
+
+        prevBtn.addEventListener('click', () => showPage(currentIndex - 1, 'prev'));
+        nextBtn.addEventListener('click', () => showPage(currentIndex + 1, 'next'));
+
+        slideContainer.addEventListener('click', (e) => {
+          if (slideContainer.classList.contains('zoomed')) return;
+          const rect = slideContainer.getBoundingClientRect();
+          const clickX = e.clientX - rect.left;
+          if (clickX > rect.width * 0.5) {
+            showPage(currentIndex + 1, 'next');
+          } else {
+            showPage(currentIndex - 1, 'prev');
+          }
         });
-
-        pageFlip.loadFromHTML(document.querySelectorAll('.page'));
-
-        document.getElementById('prevBtn').addEventListener('click', () => pageFlip.flipPrev());
-        document.getElementById('nextBtn').addEventListener('click', () => pageFlip.flipNext());
 
         let isZoomed = false;
         zoomBtn.addEventListener('click', () => {
           isZoomed = !isZoomed;
-          bookWrapper.classList.toggle('zoomed', isZoomed);
+          slideContainer.classList.toggle('zoomed', isZoomed);
           zoomBtn.classList.toggle('active', isZoomed);
-          zoomBtn.textContent = isZoomed ? '🔍 Reducir' : '🔍 Ampliar';
+          zoomBtn.textContent = isZoomed ? '🔍 Ajustar' : '🔍 Ampliar';
         });
 
         fullBtn.addEventListener('click', () => {
@@ -196,12 +270,8 @@
         });
 
         document.addEventListener('keydown', (e) => {
-          if (e.key === 'ArrowLeft') pageFlip.flipPrev();
-          if (e.key === 'ArrowRight') pageFlip.flipNext();
-        });
-
-        pageFlip.on('flip', (e) => {
-          pageInfo.textContent = `Página ${e.data + 1} de ${totalPages}`;
+          if (e.key === 'ArrowLeft') showPage(currentIndex - 1, 'prev');
+          if (e.key === 'ArrowRight' || e.key === ' ') showPage(currentIndex + 1, 'next');
         });
 
         loader.style.display = 'none';
