@@ -27,6 +27,8 @@
       justify-content: center;
       z-index: 100;
       gap: 12px;
+      padding: 20px;
+      text-align: center;
     }
     .book-wrapper {
       width: 95vw;
@@ -70,7 +72,7 @@
 <body>
 
   <div id="loader">
-    <p>Cargando dossier interactivo...</p>
+    <p id="statusTitle">Cargando dossier interactivo...</p>
     <span id="progress">Preparando páginas...</span>
   </div>
 
@@ -84,10 +86,8 @@
     <button id="nextBtn">Siguiente →</button>
   </div>
 
-  <!-- Motor de paso de página local -->
   <script src="./page-flip.browser.js"></script>
 
-  <!-- Lector PDF.js v6.5 en local -->
   <script type="module">
     import * as pdfjsLib from './pdf.mjs';
     pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.mjs';
@@ -95,62 +95,70 @@
     const pdfUrl = './dossier-editor-portable-carta-digital.pdf';
     const flipbookEl = document.getElementById('flipbook');
     const loader = document.getElementById('loader');
+    const statusTitle = document.getElementById('statusTitle');
     const progressText = document.getElementById('progress');
     const pageInfo = document.getElementById('pageInfo');
 
     async function initBook() {
-      const pdf = await pdfjsLib.getDocument(pdfUrl).promise;
-      const totalPages = pdf.numPages;
+      try {
+        const loadingTask = pdfjsLib.getDocument({ url: pdfUrl });
+        const pdf = await loadingTask.promise;
+        const totalPages = pdf.numPages;
 
-      for (let num = 1; num <= totalPages; num++) {
-        progressText.textContent = `Renderizando ${num} / ${totalPages} páginas`;
-        const page = await pdf.getPage(num);
-        const viewport = page.getViewport({ scale: 1.6 });
+        for (let num = 1; num <= totalPages; num++) {
+          progressText.textContent = `Renderizando ${num} / ${totalPages} páginas`;
+          const page = await pdf.getPage(num);
+          const viewport = page.getViewport({ scale: 1.6 });
 
-        const pageDiv = document.createElement('div');
-        pageDiv.className = 'page';
-        if (num === 1 || num === totalPages) {
-          pageDiv.dataset.density = 'hard';
+          const pageDiv = document.createElement('div');
+          pageDiv.className = 'page';
+          if (num === 1 || num === totalPages) {
+            pageDiv.dataset.density = 'hard';
+          }
+
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          await page.render({ canvasContext: context, viewport: viewport }).promise;
+          pageDiv.appendChild(canvas);
+          flipbookEl.appendChild(pageDiv);
         }
 
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+        const pageFlip = new St.PageFlip(flipbookEl, {
+          width: 640,
+          height: 360,
+          size: 'stretch',
+          minWidth: 320,
+          maxWidth: 1280,
+          minHeight: 180,
+          maxHeight: 720,
+          showCover: true,
+          maxShadowOpacity: 0.4,
+          mobileScrollSupport: false
+        });
 
-        await page.render({ canvasContext: context, viewport: viewport }).promise;
-        pageDiv.appendChild(canvas);
-        flipbookEl.appendChild(pageDiv);
+        pageFlip.loadFromHTML(document.querySelectorAll('.page'));
+
+        document.getElementById('prevBtn').addEventListener('click', () => pageFlip.flipPrev());
+        document.getElementById('nextBtn').addEventListener('click', () => pageFlip.flipNext());
+
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowLeft') pageFlip.flipPrev();
+          if (e.key === 'ArrowRight') pageFlip.flipNext();
+        });
+
+        pageFlip.on('flip', (e) => {
+          pageInfo.textContent = `Página ${e.data + 1} de ${totalPages}`;
+        });
+
+        loader.style.display = 'none';
+      } catch (err) {
+        statusTitle.textContent = 'Error al cargar el documento';
+        progressText.textContent = err.message;
+        console.error(err);
       }
-
-      const pageFlip = new St.PageFlip(flipbookEl, {
-        width: 640,
-        height: 360,
-        size: 'stretch',
-        minWidth: 320,
-        maxWidth: 1280,
-        minHeight: 180,
-        maxHeight: 720,
-        showCover: true,
-        maxShadowOpacity: 0.4,
-        mobileScrollSupport: false
-      });
-
-      pageFlip.loadFromHTML(document.querySelectorAll('.page'));
-
-      document.getElementById('prevBtn').addEventListener('click', () => pageFlip.flipPrev());
-      document.getElementById('nextBtn').addEventListener('click', () => pageFlip.flipNext());
-
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowLeft') pageFlip.flipPrev();
-        if (e.key === 'ArrowRight') pageFlip.flipNext();
-      });
-
-      pageFlip.on('flip', (e) => {
-        pageInfo.textContent = `Página ${e.data + 1} de ${totalPages}`;
-      });
-
-      loader.style.display = 'none';
     }
 
     initBook();
